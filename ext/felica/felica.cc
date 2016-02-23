@@ -138,6 +138,9 @@ static VALUE cFelicaDevice;
 static VALUE cFelicaStatusError;
 static ID idRaise;
 
+/*
+ * Initialise libnfc via +nfc_init+.
+ */
 static VALUE nfc_make_context(VALUE klass) {
     nfc_context* p = nullptr;
     nfc_init(&p);
@@ -148,6 +151,16 @@ static VALUE nfc_make_context(VALUE klass) {
     return Data_Wrap_Struct(cNFCContext, nullptr, nfc_exit, p);
 }
 
+/*
+ * Document-class: Felica::NFC::Context
+ *
+ * Wraps a libnfc +nfc_context+.
+ */
+
+/*
+ * Opens an NFC reader via +nfc_open+. Returns a
+ * Felica::NFC::Device.
+ */
 static VALUE nfc_context_open_device(VALUE self) {
     nfc_context *ctx;
     Data_Get_Struct(self, nfc_context, ctx);
@@ -159,6 +172,16 @@ static VALUE nfc_context_open_device(VALUE self) {
     return Data_Wrap_Struct(cNFCDevice, nullptr, nfc_close, dev);
 }
 
+/*
+ * Document-class: Felica::NFC::Device
+ *
+ * Wraps a libnfc +nfc_device+.
+ */
+
+/*
+ * Initialize an +nfc_device+. Will configure the +nfc_device+ into
+ * initiator mode.
+ */
 static VALUE nfc_device_init(VALUE self) {
     nfc_device *dev;
     Data_Get_Struct(self, nfc_device, dev);
@@ -170,6 +193,10 @@ static VALUE nfc_device_init(VALUE self) {
     return Qnil;
 }
 
+/*
+ * Search for a Felica and return a Felica::Device. Will block until a
+ * Felica device is detected.
+ */
 static VALUE nfc_device_select_felica(VALUE self) {
     nfc_device *dev;
     Data_Get_Struct(self, nfc_device, dev);
@@ -198,6 +225,14 @@ static VALUE nfc_device_select_felica(VALUE self) {
                             delete_proxy<felica_device>,
                             felica_dev);
 }
+
+/*
+ * Document-class: Felica::Device
+ *
+ * Provides access to the Felica card specific requests. Cannot be
+ * constructed directly, instead an instance will be returned from
+ * Felica#poll, or the underlying Felica::NFC::Device#select_felica.
+ */
 
 struct check_nfc_response {
     template<typename T>
@@ -292,6 +327,9 @@ static int nfc_felica_checked_transceive(VALUE dev,
     return res;
 }
 
+/*
+ * Returns the current mode. Can be used as a simple ping.
+ */
 static VALUE nfc_felica_device_get_mode(VALUE self) {
     typedef felica_device::get_mode r;
     r::request req;
@@ -301,6 +339,11 @@ static VALUE nfc_felica_device_get_mode(VALUE self) {
     return INT2NUM(response.mode);
 }
 
+/*
+ * Returns a 16 byte block from the given service at the given index.
+ *
+ * call-seq: read_block(service_code, block_index)
+ */
 static VALUE nfc_felica_device_read_block(VALUE self, VALUE v_service_code, VALUE v_block_index) {
     uint16_t service_code = NUM2UINT(v_service_code);
     uint8_t block_index = NUM2UINT(v_block_index);
@@ -326,6 +369,9 @@ static VALUE nfc_felica_device_read_block(VALUE self, VALUE v_service_code, VALU
 }
 
 
+/*
+ * Returns an array containing a list of service values.
+ */
 static VALUE nfc_felica_device_services(VALUE self) {
     typedef felica_device::search_service r;
 
@@ -361,31 +407,30 @@ static VALUE nfc_felica_device_services(VALUE self) {
 }
 
 extern "C" void Init_felica(void) {
-    typedef VALUE(*ruby_method)(ANYARGS);
-
     VALUE mFelica = rb_define_module("Felica");
 
     VALUE cNFC = rb_define_class_under(mFelica, "NFC", rb_cObject);
     rb_define_singleton_method(cNFC, "make_context",
-                               reinterpret_cast<ruby_method>(nfc_make_context), 0);
+                               RUBY_METHOD_FUNC(nfc_make_context), 0);
 
     cNFCContext = rb_define_class_under(cNFC, "Context", rb_cObject);
+    /* rb_define_method(cNFCContext, "open_device", RUBY_METHOD_FUNC(nfc_context_open_device), 0); */
     rb_define_method(cNFCContext, "open_device",
-                     reinterpret_cast<ruby_method>(nfc_context_open_device), 0);
+                     RUBY_METHOD_FUNC(nfc_context_open_device), 0);
 
     cNFCDevice = rb_define_class_under(cNFC, "Device", rb_cObject);
     rb_define_method(cNFCDevice, "init!",
-                     reinterpret_cast<ruby_method>(nfc_device_init), 0);
+                     RUBY_METHOD_FUNC(nfc_device_init), 0);
     rb_define_method(cNFCDevice, "select_felica",
-                     reinterpret_cast<ruby_method>(nfc_device_select_felica), 0);
+                     RUBY_METHOD_FUNC(nfc_device_select_felica), 0);
 
     cFelicaDevice = rb_define_class_under(mFelica, "Device", rb_cObject);
     rb_define_method(cFelicaDevice, "get_mode",
-                     reinterpret_cast<ruby_method>(nfc_felica_device_get_mode), 0);
+                     RUBY_METHOD_FUNC(nfc_felica_device_get_mode), 0);
     rb_define_method(cFelicaDevice, "read_block",
-                     reinterpret_cast<ruby_method>(nfc_felica_device_read_block), 2);
+                     RUBY_METHOD_FUNC(nfc_felica_device_read_block), 2);
     rb_define_method(cFelicaDevice, "services",
-                     reinterpret_cast<ruby_method>(nfc_felica_device_services), 0);
+                     RUBY_METHOD_FUNC(nfc_felica_device_services), 0);
 
     cFelicaStatusError = rb_const_get(mFelica, rb_intern("FelicaStatusError"));
     idRaise = rb_intern("raise!");
