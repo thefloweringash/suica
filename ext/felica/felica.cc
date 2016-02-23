@@ -17,30 +17,21 @@ static void delete_proxy(void *target) {
 
 // the low level device
 class felica_device {
-    struct command_header {
+    struct request_header {
         uint8_t len;
-        uint8_t commandCode;
+        uint8_t code;
         uint8_t idm[8];
     } __attribute__((packed));
 
     struct response_header {
         uint8_t len;
-        uint8_t commandCode;
+        uint8_t code;
         uint8_t idm[8];
     } __attribute__((packed));
 
 
     VALUE mNFCDevice;
     nfc_target mTarget;
-
-    template <typename T>
-    void fill_header(T* command, uint8_t commandCode) {
-        command->header.len = sizeof(T);
-        command->header.commandCode = commandCode;
-        memcpy(&command->header.idm,
-               mTarget.nti.nfi.abtId,
-               sizeof(command->header.idm));
-    }
 
     int transceiveRaw(const uint8_t *send, uint8_t sendLen,
                       uint8_t *recv, uint8_t recvLen,
@@ -57,15 +48,6 @@ class felica_device {
         return res;
     }
 
-    template <typename T, typename Y>
-    int transceiveCommand(uint8_t commandCode, T* command, Y* response) {
-        fill_header(command, commandCode);
-        return transceiveRaw(reinterpret_cast<const uint8_t*>(command),
-                             sizeof(T),
-                             reinterpret_cast<uint8_t*>(response),
-                             sizeof(Y));
-    }
-
 public:
     void rb_mark() {
         ::rb_gc_mark(mNFCDevice);
@@ -76,11 +58,11 @@ public:
         constexpr static uint8_t code = 0x04;
 
         struct request {
-            felica_device::command_header header;
+            request_header header;
         } __attribute__((packed));
 
         struct response {
-            felica_device::response_header header;
+            response_header header;
             uint8_t mode;
         } __attribute__((packed));
     };
@@ -90,7 +72,7 @@ public:
         constexpr static uint8_t code = 0x06;
 
         struct request {
-            felica_device::command_header header;
+            request_header header;
             uint8_t serviceListCount;
             uint16_t serviceList[serviceListCount_];
             uint8_t blockListCount;
@@ -103,7 +85,7 @@ public:
         } __attribute__((packed));
 
         struct response {
-            felica_device::response_header header;
+            response_header header;
             uint8_t statusFlag1;
             uint8_t statusFlag2;
             uint8_t blockCount;
@@ -122,7 +104,15 @@ public:
     template <typename T>
     int transceive(typename T::request* request,
                    typename T::response* response) {
-        return transceiveCommand(T::code, request, response);
+        request->header.len = sizeof(*request);
+        request->header.code = T::code;
+        memcpy(&request->header.idm,
+               mTarget.nti.nfi.abtId,
+               sizeof(request->header.idm));
+        return transceiveRaw(reinterpret_cast<const uint8_t*>(request),
+                             sizeof(*request),
+                             reinterpret_cast<uint8_t*>(response),
+                             sizeof(*response));
     }
 };
 
@@ -194,11 +184,37 @@ static VALUE nfc_device_select_felica(VALUE self) {
                             felica_dev);
 }
 
+struct check_nfc_response {
+    template<typename T>
+    static void check(int res,
+                      typename T::request *request,
+                      typename T::response *response)
+    {
+        if (res < 0) {
+            rb_raise(rb_eRuntimeError, "nfc transport error: %d", res);
+        }
+    }
+};
+
+struct check_response_code {
+    template<typename T>
+    static void check(int res,
+                      typename T::request *request,
+                      typename T::response *response)
+    {
+        if (response->header.code != (T::code + 1)) {
+            rb_raise(rb_eRuntimeError, "unexpected response code: 0x%x != 0x%x",
+                     response->header.code,
+                     T::code + 1);
+        }
+    }
+};
+
 struct check_length {
     template<typename T>
-    void check(int res,
-               typename T::request *request,
-               typename T::response *response)
+    static void check(int res,
+                      typename T::request *request,
+                      typename T::response *response)
     {
         if (res != sizeof(*response)) {
             rb_raise(rb_eRuntimeError, "short read: %d != %lu", res, sizeof(*response));
@@ -208,9 +224,9 @@ struct check_length {
 
 struct check_status_flags {
     template<typename T>
-    void check(int res,
-               typename T::request *request,
-               typename T::response *response)
+    static void check(int res,
+                      typename T::request *request,
+                      typename T::response *response)
     {
         if (response->statusFlag1 != 0 || response->statusFlag2 != 0) {
             rb_funcall(cFelicaStatusError, idRaise, 2,
@@ -227,11 +243,10 @@ static void run_checks(int res,
 
 template <typename T, typename Check, typename... Checks>
 static void run_checks(int res,
-                  typename T::request *request,
-                  typename T::response *response)
+                       typename T::request *request,
+                       typename T::response *response)
 {
-    Check c;
-    c.template check<T>(res, request, response);
+    Check::template check<T>(res, request, response);
     run_checks<T, Checks...>(res, request, response);
 }
 
@@ -245,11 +260,8 @@ static int nfc_felica_checked_transceive(VALUE dev,
 
     int res = fdev->transceive<T>(request, response);
 
-    if (res < 0) {
-        rb_raise(rb_eRuntimeError, "nfc transport error: %d", res);
-    }
-
-    run_checks<T, Checks...>(res, request, response);
+    run_checks<T, check_nfc_response, check_response_code, Checks...>(
+        res, request, response);
     return res;
 }
 
