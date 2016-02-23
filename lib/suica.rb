@@ -1,35 +1,51 @@
+require 'date'
+
 module Suica
-  class Suica
+  class Transaction
     ACTION = {
-      25 => "New card",
-      22 => "Train",
+      25  => "New card",
+      22  => "Train",
       200 => "Vending Machine"
     }
 
+    attr_reader :raw, :serial, :date, :balance
+
     def read_date(data)
-      x = data[4] << 8 | data[5]
-      year = x >> 9
+      x     = data[4] << 8 | data[5]
+      year  = x >> 9
       month = (x >> 5) & 0x0f;
-      day = x & 0x1f
-      "#{2000 + year}-#{month}-#{day}"
+      day   = x & 0x1f
+      Date.new(2000 + year, month, day)
     end
+
+    def initialize(block)
+      @raw  = block
+      bytes = block.bytes
+
+      @action  = bytes[0]
+      @date    = read_date(bytes)
+      @balance = (bytes[11] << 8) + bytes[10]
+      @serial  = (bytes[12] << 16) + (bytes[13] << 8) + bytes[14]
+    end
+  end
+
+  class Suica
+    HISTORY_SERVICE = 0x090f
 
     def initialize(felica_device)
       @felica_device = felica_device
     end
 
     def read_transactions
-      0.upto(32) do |x|
-        block = @felica_device.read_block(0x090f, x).bytes
-        break if block[0] == 0 # no more data
-
-        action_name = ACTION[block[0]]
-        date = read_date(block)
-        balance = (block[11] << 8) + block[10]
-        serial = (block[12] << 16) + (block[13] << 8) + block[14]
-
-        puts [action_name, date, balance, serial.inspect].join(', ')
+      result = []
+      tx = 0
+      loop do
+        block = @felica_device.read_block(HISTORY_SERVICE, tx)
+        break if block.getbyte(0) == 0
+        result << Transaction.new(block)
+        tx = tx + 1
       end
+      result
     end
   end
 end
