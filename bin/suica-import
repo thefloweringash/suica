@@ -1,3 +1,5 @@
+#!/usr/bin/env ruby
+
 require 'felica'
 require 'suica'
 require 'sqlite3'
@@ -45,4 +47,4 @@ def import(db_name)
   puts "Imported #{transactions.count} transactions"
 end
 
-import "history.db"
+import ARGV[0]
