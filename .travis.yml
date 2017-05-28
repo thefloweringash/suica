@@ -1,0 +1,8 @@
+language: ruby
+dist: trusty
+sudo: false
+
+addons:
+  apt:
+    packages:
+      libnfc-dev
