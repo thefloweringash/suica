@@ -14,4 +14,6 @@ Gem::Specification.new do |s|
                    'ext/felica/felica.cc']
   s.executables = ['suica-import']
   s.extensions  = ['ext/felica/extconf.rb']
+
+  s.add_development_dependency 'rake-compiler', '~> 1.0.0'
 end

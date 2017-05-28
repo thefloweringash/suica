@@ -33,12 +33,15 @@ end
 
 def import(db_name)
   db = DB.new(db_name)
-  puts "Waiting for card..."
-  suica = Suica::Suica.new(
-    Felica::Felica.new.poll)
 
-  puts "Importing transactions"
-  transactions = suica.read_transactions()
+  transactions = Felica.open_device do |nfc_reader|
+    puts "Waiting for card..."
+    suica = Suica::Suica.new(
+      nfc_reader.select_felica)
+
+    puts "Reading transactions"
+    suica.read_transactions.to_a
+  end
 
   transactions.each do |tx|
     db.insert(tx)

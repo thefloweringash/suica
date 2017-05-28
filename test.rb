@@ -1,9 +1,10 @@
 require 'felica'
 require 'suica'
 
-f = Felica::Felica.new
-while true
-  suica = Suica::Suica.new(f.poll())
-  puts suica.read_transactions.map(&:inspect)
-  sleep 1
+loop do
+  Felica.open_device do |nfc_dev|
+    suica = Suica::Suica.new(nfc_dev.select_felica)
+    suica.read_transactions.each { |tx| puts tx.inspect }
+    sleep 1
+  end
 end
